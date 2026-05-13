@@ -1,0 +1,34 @@
+{
+  "name": "pi-marathon-theme",
+  "version": "1.0.0",
+  "description": "Cyberpunk UI theme for pi, inspired by Marathon (2026) and 80s/90s hacking aesthetics",
+  "keywords": [
+    "pi-package"
+  ],
+  "license": "MIT",
+  "author": "Justin Clayton",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justinclayton/pi-marathon-theme.git"
+  },
+  "files": [
+    "extensions/",
+    "themes/",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/marathon-theme"
+    ],
+    "themes": [
+      "./themes"
+    ]
+  },
+  "dependencies": {
+    "pi-marathon-theme": "^1.0.0"
+  }
+}
