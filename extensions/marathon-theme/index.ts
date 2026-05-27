@@ -389,12 +389,12 @@ class MarathonEditor extends CustomEditor {
 		const model = this.ctx.model ? this.ctx.model.id : "NO_MODEL";
 		const thinking = (globalPi as ExtensionAPI).getThinkingLevel().toUpperCase();
 		const ctxUsage = this.ctx.getContextUsage();
-		const ctxPct = ctxUsage?.percent !== null && ctxUsage?.percent !== undefined ? ctxUsage.percent.toFixed(1) : "?";
 		const contextWindow = ctxUsage?.contextWindow ?? this.ctx.model?.contextWindow ?? 0;
-		const ctxSize = contextWindow >= 1_000_000 ? `${(contextWindow / 1_000_000).toFixed(1)}M` : contextWindow >= 1_000 ? `${(contextWindow / 1_000).toFixed(0)}K` : `${contextWindow}`;
+		const ctxTokens = ctxUsage?.tokens != null ? `${Math.round(ctxUsage.tokens / 1000)}k` : "?";
+		const ctxSize = contextWindow >= 1_000_000 ? `${(contextWindow / 1_000_000).toFixed(1)}M` : contextWindow >= 1_000 ? `${(contextWindow / 1_000).toFixed(0)}k` : `${contextWindow}`;
 
 		const bottomLeft = ` ${LIME_DIM(cwdBase)}${branchName ? ` ${LIME_GHOST("│")} ${branchColor(branchName)}` : ""} ${LIME_GHOST("│")} ${LIME_FAINT(`T:${this.turnCount}`)} `;
-		const bottomRight = ` ${LIME_FAINT(`${ctxPct}%/${ctxSize}`)} ${LIME_GHOST("│")} ${LIME_DIM(model)} ${LIME_FAINT(`(${thinking})`)} `;
+		const bottomRight = ` ${LIME_FAINT(`${ctxTokens}/${ctxSize}`)} ${LIME_GHOST("│")} ${LIME_DIM(model)} ${LIME_FAINT(`(${thinking})`)} `;
 
 		lines[lines.length - 1] = fitBorder(bottomLeft, bottomRight, width, borderColor, (t) => LIME_GHOST(t));
 
