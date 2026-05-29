@@ -37,15 +37,129 @@ const bgRgb = (r: number, g: number, b: number, text: string) =>
 const fgRgb = (r: number, g: number, b: number) =>
 	`\x1b[38;2;${r};${g};${b}m`;
 
-// Marathon palette - raw ANSI (theme-independent for animations)
-const LIME = (t: string) => rgb(57, 255, 20, t);
-const LIME_DIM = (t: string) => rgb(46, 184, 46, t);
-const LIME_FAINT = (t: string) => rgb(30, 120, 30, t);
-const LIME_GHOST = (t: string) => rgb(20, 70, 20, t);
-const PINK = (t: string) => rgb(255, 110, 199, t);
-const CYAN = (t: string) => rgb(0, 229, 255, t);
-const PURPLE = (t: string) => rgb(191, 95, 255, t);
-const BLUE = (t: string) => rgb(68, 136, 255, t);
+// ─── Palette system ──────────────────────────────────────────────────
+interface RGB { r: number; g: number; b: number; }
+
+// Badge: dark text on colored background
+const badge = (bgR: number, bgG: number, bgB: number, text: string) =>
+	`\x1b[38;2;10;10;15m\x1b[48;2;${bgR};${bgG};${bgB}m ${text} ${RESET}`;
+
+interface AnimPalette {
+	primary: (t: string) => string;
+	primaryDim: (t: string) => string;
+	primaryFaint: (t: string) => string;
+	primaryGhost: (t: string) => string;
+	danger: (t: string) => string;
+	secondary: (t: string) => string;
+	attention: (t: string) => string;
+	hot: (t: string) => string;
+	badgePrimary: (t: string) => string;
+	badgeSecondary: (t: string) => string;
+	badgeAttention: (t: string) => string;
+	badgeHot: (t: string) => string;
+	fillPrimary: (t: string) => string;
+	gradientStops: RGB[];
+}
+
+
+
+
+// Parse RGB from an ANSI escape like "\x1b[38;2;R;G;Bm"
+function parseRgbFromAnsi(ansi: string): RGB | undefined {
+	const m = ansi.match(/38;2;(\d+);(\d+);(\d+)/);
+	if (m) return { r: +m[1]!, g: +m[2]!, b: +m[3]! };
+	return undefined;
+}
+
+function scaleRgb(c: RGB, factor: number): RGB {
+	return {
+		r: Math.round(Math.min(255, c.r * factor)),
+		g: Math.round(Math.min(255, c.g * factor)),
+		b: Math.round(Math.min(255, c.b * factor)),
+	};
+}
+
+function buildPaletteFromTheme(theme: { getFgAnsi(color: string): string; fg(color: string, text: string): string }): AnimPalette {
+	const accentRgb = parseRgbFromAnsi(theme.getFgAnsi("accent" as any)) ?? { r: 57, g: 255, b: 20 };
+	const successRgb = parseRgbFromAnsi(theme.getFgAnsi("success" as any)) ?? { r: 85, g: 255, b: 85 };
+	const borderAccentRgb = parseRgbFromAnsi(theme.getFgAnsi("borderAccent" as any)) ?? { r: 0, g: 229, b: 255 };
+	const syntaxKeywordRgb = parseRgbFromAnsi(theme.getFgAnsi("syntaxKeyword" as any)) ?? { r: 170, g: 85, b: 255 };
+	const syntaxStringRgb = parseRgbFromAnsi(theme.getFgAnsi("syntaxString" as any)) ?? { r: 85, g: 255, b: 85 };
+	const syntaxFunctionRgb = parseRgbFromAnsi(theme.getFgAnsi("syntaxFunction" as any)) ?? { r: 0, g: 229, b: 255 };
+	const warningRgb = parseRgbFromAnsi(theme.getFgAnsi("warning" as any)) ?? { r: 255, g: 191, b: 0 };
+	const errorRgb = parseRgbFromAnsi(theme.getFgAnsi("error" as any)) ?? { r: 255, g: 60, b: 60 };
+
+	const dim = scaleRgb(accentRgb, 0.7);
+	const faint = scaleRgb(accentRgb, 0.45);
+	const ghost = scaleRgb(accentRgb, 0.25);
+
+	return {
+		primary: (t: string) => theme.fg("accent" as any, t),
+		primaryDim: (t: string) => rgb(dim.r, dim.g, dim.b, t),
+		primaryFaint: (t: string) => rgb(faint.r, faint.g, faint.b, t),
+		primaryGhost: (t: string) => rgb(ghost.r, ghost.g, ghost.b, t),
+		danger: (t: string) => theme.fg("borderAccent" as any, t),
+		secondary: (t: string) => theme.fg("syntaxFunction" as any, t),
+		attention: (t: string) => theme.fg("warning" as any, t),
+		hot: (t: string) => theme.fg("error" as any, t),
+		badgePrimary: (t: string) => badge(accentRgb.r, accentRgb.g, accentRgb.b, t),
+		badgeSecondary: (t: string) => badge(syntaxFunctionRgb.r, syntaxFunctionRgb.g, syntaxFunctionRgb.b, t),
+		badgeAttention: (t: string) => badge(warningRgb.r, warningRgb.g, warningRgb.b, t),
+		badgeHot: (t: string) => badge(errorRgb.r, errorRgb.g, errorRgb.b, t),
+		fillPrimary: (t: string) => `\x1b[48;2;${accentRgb.r};${accentRgb.g};${accentRgb.b}m${t}${RESET}`,
+		// Scramble the theme's key colors together (skip warning/error — they intentionally break vibe)
+		gradientStops: [
+			accentRgb,
+			successRgb,
+			borderAccentRgb,
+			syntaxKeywordRgb,
+			syntaxStringRgb,
+			accentRgb, // wrap back
+		],
+	};
+}
+
+function getPaletteForTheme(_themeName: string | undefined, theme?: any): AnimPalette {
+	if (theme) return buildPaletteFromTheme(theme);
+	// Fallback: build a basic green palette if no theme object available
+	return {
+		primary: (t: string) => rgb(57, 255, 20, t),
+		primaryDim: (t: string) => rgb(40, 178, 14, t),
+		primaryFaint: (t: string) => rgb(26, 115, 9, t),
+		primaryGhost: (t: string) => rgb(14, 64, 5, t),
+		danger: (t: string) => rgb(255, 60, 60, t),
+		secondary: (t: string) => rgb(0, 229, 255, t),
+		attention: (t: string) => rgb(255, 191, 0, t),
+		hot: (t: string) => rgb(255, 60, 60, t),
+		badgePrimary: (t: string) => badge(57, 255, 20, t),
+		badgeSecondary: (t: string) => badge(0, 229, 255, t),
+		badgeAttention: (t: string) => badge(255, 191, 0, t),
+		badgeHot: (t: string) => badge(255, 60, 60, t),
+		fillPrimary: (t: string) => `\x1b[48;2;57;255;20m${t}${RESET}`,
+		gradientStops: [
+			{ r: 57, g: 255, b: 20 },
+			{ r: 57, g: 255, b: 20 },
+		],
+	};
+}
+
+// Active palette (updated on theme change based on active theme tokens)
+let palette: AnimPalette = getPaletteForTheme(undefined);
+
+// Legacy aliases that delegate to active palette
+const PRIMARY = (t: string) => palette.primary(t);
+const PRIMARY_DIM = (t: string) => palette.primaryDim(t);
+const PRIMARY_FAINT = (t: string) => palette.primaryFaint(t);
+const PRIMARY_GHOST = (t: string) => palette.primaryGhost(t);
+const DANGER = (t: string) => palette.danger(t);
+const SECONDARY = (t: string) => palette.secondary(t);
+const ATTENTION = (t: string) => palette.attention(t);
+const HOT = (t: string) => palette.hot(t);
+const BADGE_PRIMARY = (t: string) => palette.badgePrimary(t);
+const BADGE_SECONDARY = (t: string) => palette.badgeSecondary(t);
+const BADGE_ATTENTION = (t: string) => palette.badgeAttention(t);
+const BADGE_HOT = (t: string) => palette.badgeHot(t);
+const FILL_PRIMARY = (t: string) => palette.fillPrimary(t);
 const DARK_BG = (t: string) => bgRgb(10, 10, 15, t);
 
 // ─── Hacker glyphs ───────────────────────────────────────────────────
@@ -65,16 +179,7 @@ function randomScrambleChar(): string {
 }
 
 // ─── HCL-ish gradient (simplified for terminal) ─────────────────────
-// Marathon palette gradient: lime → cyan → purple → pink → lime (cycling)
-interface RGB { r: number; g: number; b: number; }
-
-const GRADIENT_STOPS: RGB[] = [
-	{ r: 57,  g: 255, b: 20  }, // lime
-	{ r: 30,  g: 200, b: 100 }, // teal-green
-	{ r: 0,   g: 229, b: 255 }, // cyan
-	{ r: 30,  g: 200, b: 100 }, // teal-green
-	{ r: 57,  g: 255, b: 20  }, // lime (wrap)
-];
+// Gradient cycling colors — pulled from active palette
 
 function lerpColor(a: RGB, b: RGB, t: number): RGB {
 	return {
@@ -84,14 +189,15 @@ function lerpColor(a: RGB, b: RGB, t: number): RGB {
 	};
 }
 
-function buildGradientRamp(size: number): RGB[] {
+function buildGradientRamp(size: number, stops?: RGB[]): RGB[] {
+	const gradientStops = stops ?? palette.gradientStops;
 	const ramp: RGB[] = [];
-	const segments = GRADIENT_STOPS.length - 1;
+	const segments = gradientStops.length - 1;
 	for (let i = 0; i < size; i++) {
 		const t = (i / size) * segments;
 		const seg = Math.min(Math.floor(t), segments - 1);
 		const local = t - seg;
-		ramp.push(lerpColor(GRADIENT_STOPS[seg]!, GRADIENT_STOPS[seg + 1]!, local));
+		ramp.push(lerpColor(gradientStops[seg]!, gradientStops[seg + 1]!, local));
 	}
 	return ramp;
 }
@@ -118,7 +224,7 @@ class ScrambleAnim {
 	constructor(width: number = ANIM_WIDTH) {
 		this.width = width;
 		// Build a wider gradient for cycling (3x width for smooth scroll)
-		this.gradientRamp = buildGradientRamp(width * 3);
+		this.gradientRamp = buildGradientRamp(width * 3, palette.gradientStops);
 		this.birthOffsets = [];
 		for (let i = 0; i < width; i++) {
 			this.birthOffsets.push(Math.random() * MAX_BIRTH_OFFSET);
@@ -160,7 +266,7 @@ class ScrambleAnim {
 
 		// Label with animated ellipsis
 		if (this.label) {
-			const labelColor = LIME_DIM;
+			const labelColor = PRIMARY_DIM;
 			const ellipsisIdx = Math.floor(this.ellipsisStep / ELLIPSIS_SPEED) % ELLIPSIS_FRAMES.length;
 			const dots = ELLIPSIS_FRAMES[ellipsisIdx]!;
 			out += LABEL_GAP + labelColor(this.label + dots);
@@ -178,6 +284,10 @@ class ScrambleAnim {
 		for (let i = 0; i < this.width; i++) {
 			this.birthOffsets[i] = Math.random() * MAX_BIRTH_OFFSET;
 		}
+	}
+
+	rebuildGradient() {
+		this.gradientRamp = buildGradientRamp(this.width * 3, palette.gradientStops);
 	}
 }
 
@@ -197,17 +307,17 @@ function buildHeader(theme: { fg: (c: string, t: string) => string; bold: (t: st
 
 	for (let i = 0; i < logo.length; i++) {
 		if (i === scanlineRow) {
-			lines.push(LIME(logo[i]!));
+			lines.push(PRIMARY(logo[i]!));
 		} else if (Math.abs(i - scanlineRow) === 1) {
-			lines.push(LIME_DIM(logo[i]!));
+			lines.push(PRIMARY_DIM(logo[i]!));
 		} else {
-			lines.push(LIME_FAINT(logo[i]!));
+			lines.push(PRIMARY_FAINT(logo[i]!));
 		}
 	}
 
-	const hex1 = LIME_GHOST(randomHex(4));
-	const hex2 = LIME_GHOST(randomHex(4));
-	const subtitle = `  ${hex1} ${LIME_DIM("▸ RUNNER TERMINAL v2.026")} ${hex2}`;
+	const hex1 = PRIMARY_GHOST(randomHex(4));
+	const hex2 = PRIMARY_GHOST(randomHex(4));
+	const subtitle = `  ${hex1} ${PRIMARY_DIM("▸ RUNNER TERMINAL v2.026")} ${hex2}`;
 	lines.push("");
 	lines.push(subtitle);
 	lines.push("");
@@ -238,7 +348,7 @@ function fitBorder(
 	fillLabel?: string,
 ): string {
 	if (width <= 0) return "";
-	if (width === 1) return border("─");
+	if (width === 1) return border("█");
 
 	let leftText = left;
 	let rightText = right;
@@ -264,9 +374,9 @@ function fitBorder(
 		const barWidth = Math.max(0, gapWidth - labelWidth);
 		const filledWidth = Math.round(barWidth * Math.min(1, Math.max(0, fillPercent / 100)));
 		const emptyWidth = barWidth - filledWidth;
-		return `${border("─")}${leftText}${fill("█".repeat(filledWidth))}${fillLabel}${border("─".repeat(emptyWidth))}${rightText}${border("─")}`;
+		return `${border("█")}${leftText}${fill("█".repeat(filledWidth))}${fillLabel}${border("█".repeat(emptyWidth))}${rightText}${border("█")}`;
 	}
-	return `${border("─")}${leftText}${fill("─".repeat(gapWidth))}${rightText}${border("─")}`;
+	return `${border("█")}${leftText}${fill("█".repeat(gapWidth))}${rightText}${border("█")}`;
 }
 
 // Hex data stream for the top border
@@ -305,7 +415,7 @@ class MarathonEditor extends CustomEditor {
 		scrambleL: ScrambleAnim,
 		scrambleR: ScrambleAnim,
 	) {
-		super(tui, theme, keybindings, { paddingX: 0 });
+		super(tui, theme, keybindings, { paddingX: 2 });
 		this.ctx = ctx;
 		this.isWorking = isWorking;
 		this.branch = branch;
@@ -352,14 +462,33 @@ class MarathonEditor extends CustomEditor {
 	}
 
 	render(width: number): string[] {
-		const lines = super.render(width);
+		const lines = super.render(width - 2);
 		if (lines.length < 2) return lines;
 
 		const borderColor = (text: string) => this.borderColor(text);
+		const borderFill = (text: string) => this.ctx.ui.theme.fg("border" as any, text);
 
-		// ─── TOP BORDER: scramble | label | scramble when working, LIME_GHOST when idle ───
+		// Add left/right side borders to content lines (not first/last which are top/bottom bars)
+		for (let i = 1; i < lines.length - 1; i++) {
+			const lineWidth = visibleWidth(lines[i]);
+			const rightPad = Math.max(0, width - 2 - lineWidth);
+			lines[i] = `${FILL_PRIMARY(" ")}${lines[i]}${" ".repeat(rightPad)}${FILL_PRIMARY(" ")}`;
+		}
+
+		// ─── TOP BORDER: scramble | label | scramble when working (pulsing), solid when idle ───
 		if (this.isWorking) {
-			const labelText = LIME_DIM(` ▸▸ ${this.scrambleLabel} ◂◂ `);
+			// Pulsing background
+			const pulseSpeed = 0.06;
+			const t = (Math.sin(this.frame * pulseSpeed) + 1) / 2;
+			const accentAnsi = this.ctx.ui.theme.getFgAnsi("accent" as any);
+			const accentCol = parseRgbFromAnsi(accentAnsi) ?? { r: 57, g: 255, b: 20 };
+			const scale = 0.45 + t * 0.55;
+			const r = Math.round(accentCol.r * scale);
+			const g = Math.round(accentCol.g * scale);
+			const b = Math.round(accentCol.b * scale);
+			const pulseBg = (text: string) => `\x1b[48;2;${r};${g};${b}m${text}${RESET}`;
+
+			const labelText = HOT(` ▸▸ ${this.scrambleLabel} ◂◂ `);
 			const labelWidth = visibleWidth(labelText);
 			const scrambleL = this.scrambleL.render();
 			const scrambleR = this.scrambleR.render();
@@ -368,24 +497,22 @@ class MarathonEditor extends CustomEditor {
 			const contentWidth = scrambleLWidth + labelWidth + scrambleRWidth;
 
 			if (contentWidth + 2 <= width) {
-				// Pad with border chars to fill width
 				const remaining = width - contentWidth - 2;
 				const padLeft = Math.floor(remaining / 2);
 				const padRight = remaining - padLeft;
-				lines[0] = `${LIME_GHOST("─")}${LIME_GHOST("─".repeat(padLeft))}${scrambleL}${labelText}${scrambleR}${LIME_GHOST("─".repeat(padRight))}${LIME_GHOST("─")}`;
+				lines[0] = `${pulseBg(" ")}${pulseBg(" ".repeat(padLeft))}${scrambleL}${labelText}${scrambleR}${pulseBg(" ".repeat(padRight))}${pulseBg(" ")}`;
 			} else {
-				// Fallback: just the label centered
-				lines[0] = fitBorder(labelText, "", width, borderColor, (_t) => LIME_GHOST("─"));
+				lines[0] = pulseBg(` ${labelText}${" ".repeat(Math.max(0, width - labelWidth - 1))}`);
 			}
 		} else {
-			// Idle: plain LIME_GHOST border
-			lines[0] = LIME_GHOST("─".repeat(width));
+			// Idle: solid chartreuse bar
+			lines[0] = FILL_PRIMARY(" ".repeat(width));
 		}
 
 		// ─── BOTTOM BORDER: cwd | branch | turns ── fill ── pct/size | model (thinking) ───
 		const cwdBase = path.basename(this.ctx.cwd) || this.ctx.cwd;
 		const branchName = this.branch ? `${this.branch}${this.branchDirty ? "*" : ""}` : "";
-		const branchColor = this.branchDirty ? PINK : LIME;
+		const branchColor = this.branchDirty ? BADGE_HOT : BADGE_SECONDARY;
 		const model = this.ctx.model ? this.ctx.model.id : "NO_MODEL";
 		const thinking = (globalPi as ExtensionAPI).getThinkingLevel().toUpperCase();
 		const ctxUsage = this.ctx.getContextUsage();
@@ -393,10 +520,15 @@ class MarathonEditor extends CustomEditor {
 		const ctxTokens = ctxUsage?.tokens != null ? `${Math.round(ctxUsage.tokens / 1000)}k` : "?";
 		const ctxSize = contextWindow >= 1_000_000 ? `${(contextWindow / 1_000_000).toFixed(1)}M` : contextWindow >= 1_000 ? `${(contextWindow / 1_000).toFixed(0)}k` : `${contextWindow}`;
 
-		const bottomLeft = ` ${LIME_DIM(cwdBase)}${branchName ? ` ${LIME_GHOST("│")} ${branchColor(branchName)}` : ""} ${LIME_GHOST("│")} ${LIME_FAINT(`T:${this.turnCount}`)} `;
-		const bottomRight = ` ${LIME_FAINT(`${ctxTokens}/${ctxSize}`)} ${LIME_GHOST("│")} ${LIME_DIM(model)} ${LIME_FAINT(`(${thinking})`)} `;
+		const bottomLeft = `${BADGE_SECONDARY(cwdBase)}${branchName ? `${branchColor(branchName)}` : ""}${BADGE_PRIMARY(`T:${this.turnCount}`)}`;
+		const bottomRight = `${BADGE_PRIMARY(`${ctxTokens}/${ctxSize}`)}${BADGE_HOT(model)}${BADGE_SECONDARY(thinking)}`;
 
-		lines[lines.length - 1] = fitBorder(bottomLeft, bottomRight, width, borderColor, (t) => LIME_GHOST(t));
+		// Fill the gap between left and right with chartreuse
+		const bottomLeftWidth = visibleWidth(bottomLeft);
+		const bottomRightWidth = visibleWidth(bottomRight);
+		const gap = Math.max(0, width - bottomLeftWidth - bottomRightWidth);
+		const gapFill = gap > 0 ? FILL_PRIMARY(" ".repeat(gap)) : "";
+		lines[lines.length - 1] = `${bottomLeft}${gapFill}${bottomRight}`;
 
 		return lines;
 	}
@@ -463,6 +595,12 @@ export default function (pi: ExtensionAPI) {
 	// ─── Setup on session start ──────────────────────────────────────
 	pi.on("session_start", async (_event, ctx) => {
 		if (!ctx.hasUI) return;
+
+		// Detect active theme and set palette
+		const themeName = ctx.ui.theme?.name;
+		palette = getPaletteForTheme(themeName, ctx.ui.theme);
+		scrambleL.rebuildGradient();
+		scrambleR.rebuildGradient();
 
 		currentCtx = ctx;
 		turnCount = 0;
