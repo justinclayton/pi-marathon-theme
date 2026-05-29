@@ -30,6 +30,9 @@ import { truncateToWidth, visibleWidth, type EditorTheme, type TUI } from "@eare
 // ─── ANSI helpers ─────────────────────────────────────────────────────
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+const stripAnsi = (s: string) => s.replace(ANSI_RE, "");
 const rgb = (r: number, g: number, b: number, text: string) =>
 	`\x1b[38;2;${r};${g};${b}m${text}${RESET}`;
 const bgRgb = (r: number, g: number, b: number, text: string) =>
@@ -203,7 +206,7 @@ function buildGradientRamp(size: number, stops?: RGB[]): RGB[] {
 }
 
 // ─── Crush-style scrambled gradient animation ────────────────────────
-const ANIM_WIDTH = 20; // number of cycling characters
+const ANIM_WIDTH = 10; // number of cycling characters
 const ANIM_FPS = 20;
 const ANIM_INTERVAL = Math.round(1000 / ANIM_FPS); // ~50ms
 const LABEL_GAP = " ";
@@ -396,6 +399,7 @@ class MarathonEditor extends CustomEditor {
 	private animTimer?: ReturnType<typeof setInterval>;
 	private frame = 0;
 	private isWorking = false;
+	private workingStartFrame = 0;
 	private ctx: ExtensionContext;
 	private branch: string | undefined;
 	private branchDirty = false;
@@ -435,6 +439,9 @@ class MarathonEditor extends CustomEditor {
 	}
 
 	setWorking(w: boolean) {
+		if (w && !this.isWorking) {
+			this.workingStartFrame = this.frame;
+		}
 		this.isWorking = w;
 	}
 
@@ -468,45 +475,42 @@ class MarathonEditor extends CustomEditor {
 		const borderColor = (text: string) => this.borderColor(text);
 		const borderFill = (text: string) => this.ctx.ui.theme.fg("border" as any, text);
 
-		// Add left/right side borders to content lines (not first/last which are top/bottom bars)
-		for (let i = 1; i < lines.length - 1; i++) {
-			const lineWidth = visibleWidth(lines[i]);
-			const rightPad = Math.max(0, width - 2 - lineWidth);
-			lines[i] = `${FILL_PRIMARY(" ")}${lines[i]}${" ".repeat(rightPad)}${FILL_PRIMARY(" ")}`;
-		}
-
-		// ─── TOP BORDER: scramble | label | scramble when working (pulsing), solid when idle ───
+		// Compute pulse state for the entire box
+		let fillBg = FILL_PRIMARY;
+		let pulseBg = FILL_PRIMARY;
+		let darkOnPulse = (text: string) => text;
 		if (this.isWorking) {
-			// Pulsing background
 			const pulseSpeed = 0.06;
-			const t = (Math.sin(this.frame * pulseSpeed) + 1) / 2;
+			const elapsed = this.frame - this.workingStartFrame;
+			const t = (Math.sin(elapsed * pulseSpeed + Math.PI / 2) + 1) / 2;
 			const accentAnsi = this.ctx.ui.theme.getFgAnsi("accent" as any);
 			const accentCol = parseRgbFromAnsi(accentAnsi) ?? { r: 57, g: 255, b: 20 };
 			const scale = 0.45 + t * 0.55;
 			const r = Math.round(accentCol.r * scale);
 			const g = Math.round(accentCol.g * scale);
 			const b = Math.round(accentCol.b * scale);
-			const pulseBg = (text: string) => `\x1b[48;2;${r};${g};${b}m${text}${RESET}`;
+			fillBg = (text: string) => `\x1b[48;2;${r};${g};${b}m${text}${RESET}`;
+			pulseBg = fillBg;
+			darkOnPulse = (text: string) => `\x1b[38;2;10;10;15m\x1b[48;2;${r};${g};${b}m${text}${RESET}`;
+		}
 
-			const labelText = HOT(` ▸▸ ${this.scrambleLabel} ◂◂ `);
+		// Add left/right side borders to content lines (not first/last which are top/bottom bars)
+		for (let i = 1; i < lines.length - 1; i++) {
+			const lineWidth = visibleWidth(lines[i]);
+			const rightPad = Math.max(0, width - 2 - lineWidth);
+			lines[i] = `${fillBg(" ")}${lines[i]}${" ".repeat(rightPad)}${fillBg(" ")}`;
+		}
+
+		// ─── TOP BORDER: pulsing bar with centered label when working, solid when idle ───
+		if (this.isWorking) {
+			const labelText = BADGE_HOT(`▸▸ ${this.scrambleLabel} ◂◂`);
 			const labelWidth = visibleWidth(labelText);
-			const scrambleL = this.scrambleL.render();
-			const scrambleR = this.scrambleR.render();
-			const scrambleLWidth = visibleWidth(scrambleL);
-			const scrambleRWidth = visibleWidth(scrambleR);
-			const contentWidth = scrambleLWidth + labelWidth + scrambleRWidth;
-
-			if (contentWidth + 2 <= width) {
-				const remaining = width - contentWidth - 2;
-				const padLeft = Math.floor(remaining / 2);
-				const padRight = remaining - padLeft;
-				lines[0] = `${pulseBg(" ")}${pulseBg(" ".repeat(padLeft))}${scrambleL}${labelText}${scrambleR}${pulseBg(" ".repeat(padRight))}${pulseBg(" ")}`;
-			} else {
-				lines[0] = pulseBg(` ${labelText}${" ".repeat(Math.max(0, width - labelWidth - 1))}`);
-			}
+			const remaining = width - labelWidth;
+			const padLeft = Math.floor(remaining / 2);
+			const padRight = remaining - padLeft;
+			lines[0] = `${fillBg(" ".repeat(padLeft))}${labelText}${fillBg(" ".repeat(padRight))}`;
 		} else {
-			// Idle: solid chartreuse bar
-			lines[0] = FILL_PRIMARY(" ".repeat(width));
+			lines[0] = fillBg(" ".repeat(width));
 		}
 
 		// ─── BOTTOM BORDER: cwd | branch | turns ── fill ── pct/size | model (thinking) ───
@@ -520,15 +524,26 @@ class MarathonEditor extends CustomEditor {
 		const ctxTokens = ctxUsage?.tokens != null ? `${Math.round(ctxUsage.tokens / 1000)}k` : "?";
 		const ctxSize = contextWindow >= 1_000_000 ? `${(contextWindow / 1_000_000).toFixed(1)}M` : contextWindow >= 1_000 ? `${(contextWindow / 1_000).toFixed(0)}k` : `${contextWindow}`;
 
-		const bottomLeft = `${BADGE_SECONDARY(cwdBase)}${branchName ? `${branchColor(branchName)}` : ""}${BADGE_PRIMARY(`T:${this.turnCount}`)}`;
-		const bottomRight = `${BADGE_PRIMARY(`${ctxTokens}/${ctxSize}`)}${BADGE_HOT(model)}${BADGE_SECONDARY(thinking)}`;
+		const bottomLeft = `${fillBg(" ")}${BADGE_SECONDARY(cwdBase)}${branchName ? `${branchColor(branchName)}` : ""}${BADGE_ATTENTION(`T:${this.turnCount}`)}`;
+		const bottomRight = `${BADGE_ATTENTION(`${ctxTokens}/${ctxSize}`)}${BADGE_HOT(model)}${BADGE_SECONDARY(thinking)}${fillBg(" ")}`;
 
-		// Fill the gap between left and right with chartreuse
+		// Fill the gap with scramble widget when working, dark space when idle
 		const bottomLeftWidth = visibleWidth(bottomLeft);
 		const bottomRightWidth = visibleWidth(bottomRight);
 		const gap = Math.max(0, width - bottomLeftWidth - bottomRightWidth);
-		const gapFill = gap > 0 ? FILL_PRIMARY(" ".repeat(gap)) : "";
-		lines[lines.length - 1] = `${bottomLeft}${gapFill}${bottomRight}`;
+
+		if (this.isWorking && gap > 0) {
+			// Fill gap with scramble text
+			const rawL = stripAnsi(this.scrambleL.render());
+			const rawR = stripAnsi(this.scrambleR.render());
+			const raw = (rawL + rawR).repeat(Math.ceil(gap / Math.max(1, rawL.length + rawR.length))).slice(0, gap);
+			lines[lines.length - 1] = `${bottomLeft}${darkOnPulse(raw)}${bottomRight}`;
+		} else {
+			lines[lines.length - 1] = `${bottomLeft}${" ".repeat(gap)}${bottomRight}`;
+		}
+
+		// Add solid bottom border line
+		lines.push(fillBg(" ".repeat(width)));
 
 		return lines;
 	}
