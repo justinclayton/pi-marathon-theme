@@ -465,21 +465,13 @@ class MarathonEditor extends CustomEditor {
 
 	startAnimation(): void {
 		if (this.animTimer) return;
-		let renderTick = 0;
 		this.animTimer = setInterval(() => {
 			this.frame++;
 			if (this.isWorking) {
 				this.scrambleL.tick();
 				this.scrambleR.tick();
 			}
-			// Throttle re-render to ~5fps (every 4th tick) to prevent constant
-			// re-renders from fighting scroll/streaming content position.
-			// Internal animation state updates at 20fps regardless.
-			renderTick++;
-			if (renderTick % 4 === 0) {
-				renderTick = 0;
-				this.tui.requestRender();
-			}
+			this.tui.requestRender();
 		}, ANIM_INTERVAL);
 	}
 
