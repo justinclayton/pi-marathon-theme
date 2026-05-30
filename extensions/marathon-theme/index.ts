@@ -519,13 +519,11 @@ class MarathonEditor extends CustomEditor {
 		}
 
 		// (2) Content lines with left/right side borders
-		//     Use STABLE background color for content to prevent pulse changes
-		//     from making every line's escape codes change on each render.
-		//     Only the top/bottom border lines pulse for visual effect.
+		//     Skip index 0 (now top border) and index N-1 (input/status line)
 		for (let i = 1; i < contentLines.length - 1; i++) {
 			const lineWidth = visibleWidth(contentLines[i]);
 			const rightPad = Math.max(0, width - 2 - lineWidth);
-			output.push(`${FILL_PRIMARY(" ")}${contentLines[i]}${" ".repeat(rightPad)}${FILL_PRIMARY(" ")}`);
+			output.push(`${fillBg(" ")}${contentLines[i]}${" ".repeat(rightPad)}${fillBg(" ")}`);
 		}
 
 		// (3) Bottom status bar: cwd | branch | turns ── fill ── pct/size | model (thinking)
