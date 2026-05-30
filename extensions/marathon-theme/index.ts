@@ -427,15 +427,9 @@ class MarathonEditor extends CustomEditor {
 		this.scrambleL = scrambleL;
 		this.scrambleR = scrambleR;
 
-		// Fast animation tick — matches ANIM_INTERVAL for smooth scramble
-		this.animTimer = setInterval(() => {
-			this.frame++;
-			if (this.isWorking) {
-				this.scrambleL.tick();
-				this.scrambleR.tick();
-			}
-			tui.requestRender();
-		}, ANIM_INTERVAL);
+		// Animation timer is managed externally via startAnimation()/stopAnimation()
+		// to prevent constant re-renders from fighting scroll position when idle.
+		this.animTimer = undefined;
 	}
 
 	setWorking(w: boolean) {
@@ -462,6 +456,34 @@ class MarathonEditor extends CustomEditor {
 	}
 
 	dispose() {
+		this.stopAnimation();
+	}
+
+	invalidate(): void {
+		this.tui.requestRender();
+	}
+
+	startAnimation(): void {
+		if (this.animTimer) return;
+		let renderTick = 0;
+		this.animTimer = setInterval(() => {
+			this.frame++;
+			if (this.isWorking) {
+				this.scrambleL.tick();
+				this.scrambleR.tick();
+			}
+			// Throttle re-render to ~5fps (every 4th tick) to prevent constant
+			// re-renders from fighting scroll/streaming content position.
+			// Internal animation state updates at 20fps regardless.
+			renderTick++;
+			if (renderTick % 4 === 0) {
+				renderTick = 0;
+				this.tui.requestRender();
+			}
+		}, ANIM_INTERVAL);
+	}
+
+	stopAnimation(): void {
 		if (this.animTimer) {
 			clearInterval(this.animTimer);
 			this.animTimer = undefined;
@@ -469,15 +491,11 @@ class MarathonEditor extends CustomEditor {
 	}
 
 	render(width: number): string[] {
-		const lines = super.render(width - 2);
-		if (lines.length < 2) return lines;
-
-		const borderColor = (text: string) => this.borderColor(text);
-		const borderFill = (text: string) => this.ctx.ui.theme.fg("border" as any, text);
+		const contentLines = super.render(width - 2);
+		if (contentLines.length < 2) return contentLines;
 
 		// Compute pulse state for the entire box
 		let fillBg = FILL_PRIMARY;
-		let pulseBg = FILL_PRIMARY;
 		let darkOnPulse = (text: string) => text;
 		if (this.isWorking) {
 			const pulseSpeed = 0.06;
@@ -490,30 +508,35 @@ class MarathonEditor extends CustomEditor {
 			const g = Math.round(accentCol.g * scale);
 			const b = Math.round(accentCol.b * scale);
 			fillBg = (text: string) => `\x1b[48;2;${r};${g};${b}m${text}${RESET}`;
-			pulseBg = fillBg;
 			darkOnPulse = (text: string) => `\x1b[38;2;10;10;15m\x1b[48;2;${r};${g};${b}m${text}${RESET}`;
 		}
 
-		// Add left/right side borders to content lines (not first/last which are top/bottom bars)
-		for (let i = 1; i < lines.length - 1; i++) {
-			const lineWidth = visibleWidth(lines[i]);
-			const rightPad = Math.max(0, width - 2 - lineWidth);
-			lines[i] = `${fillBg(" ")}${lines[i]}${" ".repeat(rightPad)}${fillBg(" ")}`;
-		}
+		// Build entirely NEW output array — never mutate contentLines
+		const output: string[] = [];
 
-		// ─── TOP BORDER: pulsing bar with centered label when working, solid when idle ───
+		// (1) Top border: pulsing bar with centered label when working, solid when idle
 		if (this.isWorking) {
 			const labelText = BADGE_HOT(`▸▸ ${this.scrambleLabel} ◂◂`);
 			const labelWidth = visibleWidth(labelText);
 			const remaining = width - labelWidth;
 			const padLeft = Math.floor(remaining / 2);
 			const padRight = remaining - padLeft;
-			lines[0] = `${fillBg(" ".repeat(padLeft))}${labelText}${fillBg(" ".repeat(padRight))}`;
+			output.push(`${fillBg(" ".repeat(padLeft))}${labelText}${fillBg(" ".repeat(padRight))}`);
 		} else {
-			lines[0] = fillBg(" ".repeat(width));
+			output.push(fillBg(" ".repeat(width)));
 		}
 
-		// ─── BOTTOM BORDER: cwd | branch | turns ── fill ── pct/size | model (thinking) ───
+		// (2) Content lines with left/right side borders
+		//     Use STABLE background color for content to prevent pulse changes
+		//     from making every line's escape codes change on each render.
+		//     Only the top/bottom border lines pulse for visual effect.
+		for (let i = 1; i < contentLines.length - 1; i++) {
+			const lineWidth = visibleWidth(contentLines[i]);
+			const rightPad = Math.max(0, width - 2 - lineWidth);
+			output.push(`${FILL_PRIMARY(" ")}${contentLines[i]}${" ".repeat(rightPad)}${FILL_PRIMARY(" ")}`);
+		}
+
+		// (3) Bottom status bar: cwd | branch | turns ── fill ── pct/size | model (thinking)
 		const cwdBase = path.basename(this.ctx.cwd) || this.ctx.cwd;
 		const branchName = this.branch ? `${this.branch}${this.branchDirty ? "*" : ""}` : "";
 		const branchColor = this.branchDirty ? BADGE_HOT : BADGE_SECONDARY;
@@ -537,15 +560,15 @@ class MarathonEditor extends CustomEditor {
 			const rawL = stripAnsi(this.scrambleL.render());
 			const rawR = stripAnsi(this.scrambleR.render());
 			const raw = (rawL + rawR).repeat(Math.ceil(gap / Math.max(1, rawL.length + rawR.length))).slice(0, gap);
-			lines[lines.length - 1] = `${bottomLeft}${darkOnPulse(raw)}${bottomRight}`;
+			output.push(`${bottomLeft}${darkOnPulse(raw)}${bottomRight}`);
 		} else {
-			lines[lines.length - 1] = `${bottomLeft}${" ".repeat(gap)}${bottomRight}`;
+			output.push(`${bottomLeft}${" ".repeat(gap)}${bottomRight}`);
 		}
 
-		// Add solid bottom border line
-		lines.push(fillBg(" ".repeat(width)));
+		// (4) Solid bottom border line
+		output.push(fillBg(" ".repeat(width)));
 
-		return lines;
+		return output;
 	}
 }
 
@@ -677,6 +700,7 @@ export default function (pi: ExtensionAPI) {
 
 		// Start the Crush-style scramble widget
 		startScrambleWidget(ctx, "BREACH");
+		currentEditor?.startAnimation();
 
 		// Title: breach mode
 		const cwd = path.basename(process.cwd());
@@ -690,6 +714,7 @@ export default function (pi: ExtensionAPI) {
 
 		// Stop the scramble widget
 		stopScrambleWidget(ctx);
+		currentEditor?.stopAnimation();
 
 		const summary = `T:${turnCount} OPS:${toolCount}`;
 		const cwd = path.basename(process.cwd());
