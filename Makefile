@@ -33,13 +33,13 @@ major: ## Bump major version (1.0.1 → 2.0.0)
 	npm version major
 
 publish: check ## Publish to npm (runs checks first)
-	@echo "Publishing $(NAME)@$(VERSION) to npm..."
+	@echo "Publishing to npm..."
 	npm publish --access public
 	@echo ""
 	@echo "Pushing tags to origin..."
 	git push origin main --tags
 	@echo ""
-	@echo "🚀 Published $(NAME)@$(VERSION)"
+	@echo "🚀 Published!"
 
 release-patch: check patch publish ## Check, bump patch, publish
 release-minor: check minor publish ## Check, bump minor, publish
