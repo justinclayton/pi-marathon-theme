@@ -8,6 +8,7 @@
 		"concrete": "#5a5a54",
 		"steel": "#3a3a36",
 		"darkSteel": "#2a2a26",
+		"indigo": "#8070cc",
 		"void": "#121210",
 		"hotPink": "#f81d78",
 		"muted": "#6a6a62"
@@ -16,7 +17,7 @@
 		"accent": "chartreuse",
 		"border": "chartreuse",
 		"borderAccent": "chartreuse",
-		"borderMuted": "darkSteel",
+		"borderMuted": "steel",
 		"success": "chartreuse",
 		"error": "hotPink",
 		"warning": "chartreuse",
@@ -66,8 +67,8 @@
 		"thinkingMinimal": "steel",
 		"thinkingLow": "concrete",
 		"thinkingMedium": "chartreuseDim",
-		"thinkingHigh": "chartreuse",
-		"thinkingXhigh": "chartreuse",
+		"thinkingHigh": "indigo",
+		"thinkingXhigh": "indigo",
 
 		"bashMode": "chartreuse"
 	},
