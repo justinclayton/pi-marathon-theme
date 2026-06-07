@@ -1,0 +1,79 @@
+{
+	"$schema": "https://raw.githubusercontent.com/earendil-works/pi-mono/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+	"name": "marathon-brutal",
+	"vars": {
+		"chartreuse": "#c3fc0d",
+		"chartreuseDim": "#7a9e08",
+		"bone": "#e8e8e0",
+		"concrete": "#5a5a54",
+		"steel": "#3a3a36",
+		"darkSteel": "#2a2a26",
+		"void": "#121210",
+		"hotPink": "#f81d78",
+		"muted": "#6a6a62"
+	},
+	"colors": {
+		"accent": "chartreuse",
+		"border": "chartreuse",
+		"borderAccent": "chartreuse",
+		"borderMuted": "darkSteel",
+		"success": "chartreuse",
+		"error": "hotPink",
+		"warning": "chartreuse",
+		"muted": "muted",
+		"dim": "concrete",
+		"text": "",
+		"thinkingText": "concrete",
+
+		"selectedBg": "#1a1a16",
+		"userMessageBg": "#161614",
+		"userMessageText": "",
+		"customMessageBg": "#161614",
+		"customMessageText": "",
+		"customMessageLabel": "chartreuse",
+		"toolPendingBg": "#141412",
+		"toolSuccessBg": "#181a14",
+		"toolErrorBg": "#1e1416",
+		"toolTitle": "chartreuse",
+		"toolOutput": "muted",
+
+		"mdHeading": "chartreuse",
+		"mdLink": "chartreuse",
+		"mdLinkUrl": "concrete",
+		"mdCode": "bone",
+		"mdCodeBlock": "bone",
+		"mdCodeBlockBorder": "steel",
+		"mdQuote": "muted",
+		"mdQuoteBorder": "steel",
+		"mdHr": "steel",
+		"mdListBullet": "chartreuse",
+
+		"toolDiffAdded": "chartreuse",
+		"toolDiffRemoved": "hotPink",
+		"toolDiffContext": "concrete",
+
+		"syntaxComment": "concrete",
+		"syntaxKeyword": "chartreuse",
+		"syntaxFunction": "bone",
+		"syntaxVariable": "bone",
+		"syntaxString": "chartreuseDim",
+		"syntaxNumber": "chartreuse",
+		"syntaxType": "bone",
+		"syntaxOperator": "chartreuse",
+		"syntaxPunctuation": "concrete",
+
+		"thinkingOff": "darkSteel",
+		"thinkingMinimal": "steel",
+		"thinkingLow": "concrete",
+		"thinkingMedium": "chartreuseDim",
+		"thinkingHigh": "chartreuse",
+		"thinkingXhigh": "chartreuse",
+
+		"bashMode": "chartreuse"
+	},
+	"export": {
+		"pageBg": "#0e0e0c",
+		"cardBg": "#141412",
+		"infoBg": "#181a14"
+	}
+}

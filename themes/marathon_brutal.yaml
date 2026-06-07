@@ -1,0 +1,33 @@
+# Marathon Brutal — Warp Terminal Theme
+# Neobrutalist companion to the pi marathon-brutal theme.
+# Install: copy to ~/.warp/themes/marathon_brutal.yaml
+#
+# Warm concrete-dark canvas, bone text, chartreuse accent.
+# ANSI colors deliberately muted except green (the accent).
+
+name: Marathon Brutal
+accent: '#c3fc0d'
+cursor: '#c3fc0d'
+background: '#121210'
+foreground: '#e8e8e0'
+details: darker
+
+terminal_colors:
+  normal:
+    black: '#2a2a26'
+    red: '#c8506a'
+    green: '#c3fc0d'
+    yellow: '#b8a840'
+    blue: '#6a7a8a'
+    magenta: '#a0607a'
+    cyan: '#6a9a8a'
+    white: '#c8c8c0'
+  bright:
+    black: '#5a5a54'
+    red: '#f81d78'
+    green: '#d4ff44'
+    yellow: '#d4c860'
+    blue: '#8a9aaa'
+    magenta: '#c8809a'
+    cyan: '#8abaa8'
+    white: '#e8e8e0'
