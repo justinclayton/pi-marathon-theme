@@ -69,6 +69,13 @@ function buildBgFn(
 const STEEL_BG = (text: string) =>
 	`\x1b[38;2;232;232;224m\x1b[48;2;58;58;54m${text}${RESET}`;
 
+// too-dumb severity blocks: solid backgrounds that pop against the cage.
+// Hard on/off, no gradients — orange = "compact soon", red = full dumb zone.
+const DUMB_ORANGE_BG = (text: string) =>
+	`\x1b[38;2;18;18;16m\x1b[48;2;240;150;0m${text}${RESET}`;
+const DUMB_RED_BG = (text: string) =>
+	`\x1b[38;2;240;240;230m\x1b[48;2;200;30;40m${text}${RESET}`;
+
 // Border width: 2 chars each side for heavy claustrophobic weight
 const BORDER_W = 2;
 
@@ -107,6 +114,13 @@ function fitRight(s: string, w: number): string {
 	if (sw > w) return s.slice(s.length - Math.max(0, w));
 	return " ".repeat(w - sw) + s;
 }
+// Center plain text in a fixed-width cell: pad both sides or hard-truncate.
+function fitCenter(s: string, w: number): string {
+	const sw = visibleWidth(s);
+	if (sw >= w) return s.slice(0, Math.max(0, w));
+	const left = Math.floor((w - sw) / 2);
+	return " ".repeat(left) + s + " ".repeat(w - sw - left);
+}
 
 // ─── Cage style functions (populated from theme at session start) ─────
 type StyleFn = (text: string) => string;
@@ -126,6 +140,9 @@ class BrutalEditor extends CustomEditor {
 	private branchDirty = false;
 	private turnCount = 0;
 	private stateLabel = "READY";
+	// Bottom-center readout fed by the too-dumb extension's "too-dumb:change" signal.
+	private dumbMessage = "";
+	private dumbSeverity: "orange" | "red" | null = null;
 
 	constructor(
 		tui: TUI,
@@ -144,6 +161,10 @@ class BrutalEditor extends CustomEditor {
 	setBranchDirty(d: boolean) { this.branchDirty = d; }
 	setTurnCount(c: number) { this.turnCount = c; }
 	setStateLabel(label: string) { this.stateLabel = label; }
+	setDumb(message: string, severity: "orange" | "red" | null) {
+		this.dumbMessage = message;
+		this.dumbSeverity = severity;
+	}
 
 	// Force a repaint from the animation clock (protected tui via Editor base).
 	tick() { this.tui.requestRender(); }
@@ -192,10 +213,19 @@ class BrutalEditor extends CustomEditor {
 		const innerL = center - SECTION_GAP;
 		const innerR = center + SECTION_GAP;
 		const leftCell = fitLeft(leftData, innerL);                 // left corner section
-		const midGap = " ".repeat(Math.max(0, innerR - innerL - 1)); // innerL → innerR
+		const midWidth = Math.max(0, innerR - innerL - 1);          // innerL → innerR
+		// Center section: too-dumb signal readout. When a warning is active it gets
+		// its own solid severity background so it pops out of the cage; otherwise it
+		// blends with the border fill.
+		const midGap = fitCenter(this.dumbMessage, midWidth);
+		const midStyle = this.dumbSeverity === "red"
+			? DUMB_RED_BG
+			: this.dumbSeverity === "orange"
+				? DUMB_ORANGE_BG
+				: border;
 		const rightCell = fitRight(rightData, width - innerR - 1);  // right corner section
 
-		lines[lines.length - 1] = `${border(leftCell + "┃" + midGap + "┃" + rightCell)}`;
+		lines[lines.length - 1] = `${border(leftCell + "┃")}${midStyle(midGap)}${border("┃" + rightCell)}`;
 
 		return lines;
 	}
@@ -209,6 +239,9 @@ export default function (pi: ExtensionAPI) {
 	let currentEditor: BrutalEditor | undefined;
 	let turnCount = 0;
 	let stateLabel = "READY";
+	// Bottom-center dumbness readout, driven by the too-dumb extension's signal.
+	let dumbMessage = "";
+	let dumbSeverity: "orange" | "red" | null = null;
 
 	// ─── Marquee animation clock ────────────────────────────────────
 	// A steady tick drives the conveyor even when the token stream is quiet
@@ -225,6 +258,28 @@ export default function (pi: ExtensionAPI) {
 
 	// Helper: four-state border — steel (idle), indigo (thinking), chartreuse (responding), hot pink (tool exec)
 	const borderFn = () => isTooling ? cageTooling : isThinking ? cageThinking : isWorking ? cageResponding : cageIdle;
+
+	// ─── too-dumb signal ─────────────────────────────────────────────
+	// Subscribe to the "too-dumb:change" event broadcast by pi-extension-too-dumb
+	// on the shared event bus. Render its warning in the bottom-center section.
+	// Edge-triggered: fires only when the warning changes (including back to null).
+	pi.events.on("too-dumb:change", (data) => {
+		const payload = data as {
+			warning: { severity: "orange" | "red"; message: string } | null;
+		} | undefined;
+		const warning = payload?.warning ?? null;
+		if (warning) {
+			dumbSeverity = warning.severity;
+			dumbMessage = warning.severity === "red" ? "DUMB ZONE ACTIVATED" : "COMPACT SOON";
+		} else {
+			dumbSeverity = null;
+			dumbMessage = "";
+		}
+		if (currentEditor) {
+			currentEditor.setDumb(dumbMessage, dumbSeverity);
+			currentEditor.tick(); // repaint immediately; the signal is edge-triggered
+		}
+	});
 
 	// ─── Session start ───────────────────────────────────────────────
 	pi.on("session_start", async (_event, ctx) => {
@@ -282,6 +337,7 @@ export default function (pi: ExtensionAPI) {
 		// ── Editor: side borders + top/bottom bars ──
 		ctx.ui.setEditorComponent((tui, theme, keybindings) => {
 			currentEditor = new BrutalEditor(tui, theme, keybindings, ctx);
+			currentEditor.setDumb(dumbMessage, dumbSeverity); // restore any active warning
 			return currentEditor;
 		});
 
