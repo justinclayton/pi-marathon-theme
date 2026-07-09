@@ -72,6 +72,42 @@ const STEEL_BG = (text: string) =>
 // Border width: 2 chars each side for heavy claustrophobic weight
 const BORDER_W = 2;
 
+// ─── Chevron marquee (non-idle) ──────────────────────────────────────
+// While the agent is active, a line of chevrons grows inward from a fixed
+// outer anchor toward the state label — starting at a single '>', becoming
+// '>>', '>>>' … filling toward the label — then snaps back to '>' and repeats.
+// The growth-and-reset reads as a pulse. Fixed width keeps the readout stable.
+const FIELD_W = 5;   // width of each chevron field (chars)
+const STEP_MS = 120; // ms per growth step (also the repaint cadence)
+
+// Left field: chevrons grow rightward from the outer anchor toward the label.
+function leftMarquee(phase: number): string {
+	const count = 1 + (((phase % FIELD_W) + FIELD_W) % FIELD_W); // 1 → FIELD_W
+	return ">".repeat(count) + " ".repeat(FIELD_W - count);
+}
+
+// Right field: mirror — chevrons grow leftward from the outer anchor toward label.
+function rightMarquee(phase: number): string {
+	const count = 1 + (((phase % FIELD_W) + FIELD_W) % FIELD_W);
+	return " ".repeat(FIELD_W - count) + "<".repeat(count);
+}
+
+// Static idle fields — the starting frame: '>>' / '<<' at the outer anchor.
+const IDLE_LEFT = ">>" + " ".repeat(FIELD_W - 2);
+const IDLE_RIGHT = " ".repeat(FIELD_W - 2) + "<<";
+
+// Fit plain text into a fixed-width cell: pad or hard-truncate.
+function fitLeft(s: string, w: number): string {
+	const sw = visibleWidth(s);
+	if (sw > w) return s.slice(0, Math.max(0, w));
+	return s + " ".repeat(w - sw);
+}
+function fitRight(s: string, w: number): string {
+	const sw = visibleWidth(s);
+	if (sw > w) return s.slice(s.length - Math.max(0, w));
+	return " ".repeat(w - sw) + s;
+}
+
 // ─── Cage style functions (populated from theme at session start) ─────
 type StyleFn = (text: string) => string;
 
@@ -109,6 +145,9 @@ class BrutalEditor extends CustomEditor {
 	setTurnCount(c: number) { this.turnCount = c; }
 	setStateLabel(label: string) { this.stateLabel = label; }
 
+	// Force a repaint from the animation clock (protected tui via Editor base).
+	tick() { this.tui.requestRender(); }
+
 	render(width: number): string[] {
 		const innerWidth = width - (BORDER_W * 2);
 		const lines = super.render(innerWidth);
@@ -127,7 +166,7 @@ class BrutalEditor extends CustomEditor {
 		// ─── TOP BAR: solid fill (part of cage frame) ───
 		lines[0] = `${border(" ".repeat(width))}`;
 
-		// ─── BOTTOM BAR: functional data ───
+		// ─── BOTTOM BAR: project + branch (left) · usage (right) ───
 		const model = this.ctx.model ? this.ctx.model.id : "—";
 		const ctxUsage = this.ctx.getContextUsage();
 		const contextWindow = ctxUsage?.contextWindow ?? this.ctx.model?.contextWindow ?? 0;
@@ -138,13 +177,25 @@ class BrutalEditor extends CustomEditor {
 				? `${(contextWindow / 1_000).toFixed(0)}k`
 				: `${contextWindow}`;
 
-		const leftData = ` >> ${this.stateLabel} << `;
+		// Left: project name + git branch (dirty marker).
+		const projectName = path.basename(this.ctx.cwd) || "PI";
+		const branchLabel = this.branch ? `${this.branch}${this.branchDirty ? "*" : ""}` : "";
+		const cageLabel = branchLabel ? `${projectName} ${branchLabel}` : projectName;
+		const leftData = ` ${cageLabel} `;
 		const rightData = ` ${tokens}/${ctxSize} ${model} `;
-		const leftWidth = visibleWidth(leftData);
-		const rightWidth = visibleWidth(rightData);
-		const gap = Math.max(0, width - leftWidth - rightWidth);
 
-		lines[lines.length - 1] = `${border(leftData + " ".repeat(gap) + rightData)}`;
+		// Two fixed dividers on the bottom bar, 30 columns either side of center,
+		// marking the inner edge of each corner (data) section. Content hugs the
+		// outer corners; the span between the dividers stays open.
+		const center = Math.floor(width / 2);
+		const SECTION_GAP = 25; // distance from center to each inner edge
+		const innerL = center - SECTION_GAP;
+		const innerR = center + SECTION_GAP;
+		const leftCell = fitLeft(leftData, innerL);                 // left corner section
+		const midGap = " ".repeat(Math.max(0, innerR - innerL - 1)); // innerL → innerR
+		const rightCell = fitRight(rightData, width - innerR - 1);  // right corner section
+
+		lines[lines.length - 1] = `${border(leftCell + "┃" + midGap + "┃" + rightCell)}`;
 
 		return lines;
 	}
@@ -158,6 +209,19 @@ export default function (pi: ExtensionAPI) {
 	let currentEditor: BrutalEditor | undefined;
 	let turnCount = 0;
 	let stateLabel = "READY";
+
+	// ─── Marquee animation clock ────────────────────────────────────
+	// A steady tick drives the conveyor even when the token stream is quiet
+	// (e.g. during long tool executions). Runs only while the agent is active.
+	let animTimer: ReturnType<typeof setInterval> | undefined;
+	const startAnim = () => {
+		if (animTimer) return;
+		animTimer = setInterval(() => currentEditor?.tick(), STEP_MS);
+	};
+	const stopAnim = () => {
+		if (animTimer) { clearInterval(animTimer); animTimer = undefined; }
+		currentEditor?.tick(); // settle to the static idle chevrons
+	};
 
 	// Helper: four-state border — steel (idle), indigo (thinking), chartreuse (responding), hot pink (tool exec)
 	const borderFn = () => isTooling ? cageTooling : isThinking ? cageThinking : isWorking ? cageResponding : cageIdle;
@@ -192,22 +256,25 @@ export default function (pi: ExtensionAPI) {
 		void refreshBranch();
 		void refreshDirty();
 
-		// ── Project/session label for the cage top ──
+		// ── Project name (used for the terminal title) ──
 		const projectName = path.basename(ctx.cwd) || "PI";
-		const branchLabel = () => branch ? `${branch}${branchDirty ? "*" : ""}` : "";
-		const cageLabel = () => {
-			const b = branchLabel();
-			return b ? `${projectName} ${b}` : projectName;
-		};
 
-		// ── Widget: TOP EDGE of the cage (pinned above editor) ──
+		// ── Widget: TOP EDGE of the cage — animated status, centered ──
 		ctx.ui.setWidget("brutal-frame-top", (_tui, _theme) => ({
 			render(width: number): string[] {
 				const border = borderFn();
-				const label = ` ${cageLabel()} `;
-				const labelWidth = visibleWidth(label);
-				const fill = Math.max(0, width - labelWidth);
-				return [border(label + " ".repeat(fill))];
+				const animating = isWorking || isThinking || isTooling;
+				const phase = Math.floor(Date.now() / STEP_MS);
+				const lf = animating ? leftMarquee(phase) : IDLE_LEFT;
+				const rf = animating ? rightMarquee(phase) : IDLE_RIGHT;
+				const status = `${lf} ${stateLabel} ${rf}`;
+				const statusWidth = visibleWidth(status);
+				// Center on the SAME column as the bottom divider (Math.floor(width/2))
+				// so the cage keeps one true symmetry axis regardless of width parity.
+				const center = Math.floor(width / 2);
+				const leftPad = Math.max(0, center - Math.floor(statusWidth / 2));
+				const rightPad = Math.max(0, width - statusWidth - leftPad);
+				return [border(" ".repeat(leftPad) + status + " ".repeat(rightPad))];
 			},
 			invalidate() {},
 		}));
@@ -241,6 +308,7 @@ export default function (pi: ExtensionAPI) {
 		isWorking = true;
 		turnCount = 0;
 		stateLabel = "AGENT_START";
+		startAnim();
 		if (currentEditor) {
 			currentEditor.setWorking(true);
 			currentEditor.setTurnCount(0);
@@ -258,6 +326,7 @@ export default function (pi: ExtensionAPI) {
 		isTooling = false;
 		isThinking = false;
 		stateLabel = "READY";
+		stopAnim();
 		if (currentEditor) {
 			currentEditor.setWorking(false);
 			currentEditor.setTooling(false);
@@ -325,6 +394,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ─── Cleanup ─────────────────────────────────────────────────────
 	pi.on("session_shutdown", async () => {
+		stopAnim();
 		currentEditor = undefined;
 	});
 }
